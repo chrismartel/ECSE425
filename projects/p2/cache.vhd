@@ -58,7 +58,7 @@ architecture arch of cache is
 	signal valid : flag_array; 	-- valid bits for each cache block
 	signal dirty : flag_array; 	-- dirty bits for each cache block
 
-	signal new_tag: std_logic_vector(22 downto 0); 	-- tag of the query block			
+	signal query_tag: std_logic_vector(22 downto 0); 	-- tag of the query block			
 	signal index: integer range 0 to 31;		-- block index
 	signal offset: integer range 0 to 15;		-- block offset
 	
@@ -79,12 +79,15 @@ begin
 		-- Assert wait request to high
 		s_waitrequest <= '1';
 		current_state <= IDLE;
+		
+		m_read <= '0';
+		m_write <= '0';
 
 	-- Synchronous active-high clock signal
 	elsif clock'event and clock = '1' then
 		offset <= to_integer(unsigned(s_addr(3 downto 0)));
 		index <= to_integer(unsigned(s_addr(8 downto 4)));
-		new_tag <= s_addr(31 downto 9);
+		query_tag <= s_addr(31 downto 9);
 
 		case current_state is
 			when IDLE =>
@@ -96,10 +99,10 @@ begin
 				end if;
 			-- Read data from cache
 			when READ_CACHE =>
-				-- check valid flag
+				-- check valid bit
 				if valid(index) = '1' then
 					-- check tag
-					if new_tag = tag(index) then
+					if query_tag = tag(index) then
 						-- tag match --> cache hit!
 				
 						-- read word
@@ -135,7 +138,7 @@ begin
 				-- check valid flag
 				if valid(index) = '1' then
 					-- check tag
-					if new_tag = tag(index) then
+					if query_tag = tag(index) then
 						-- tag match --> cache hit!
 
 						-- write data to cache
@@ -173,7 +176,7 @@ begin
 				-- signal to memory that we want to perform a read
 				m_read <= '1';
 				-- build byte address: tag + index + offset
-				m_addr <= to_integer(unsigned(std_logic_vector'(new_tag & s_addr(8 downto 4) & std_logic_vector(to_unsigned(mem_offset,4)))));
+				m_addr <= to_integer(unsigned(std_logic_vector'(query_tag & std_logic_vector(to_unsigned(index,5)) & std_logic_vector(to_unsigned(mem_offset,4)))));
 				current_state <= READ_MEM_WAIT;
 				
 			when READ_MEM_WAIT =>
@@ -188,7 +191,7 @@ begin
 						-- block transaction complete
 							
 						-- update tag and flags
-						tag(index) <= new_tag;
+						tag(index) <= query_tag;
 						valid(index) <= '0';
 
 						-- transit back to read/write cache 
@@ -209,7 +212,7 @@ begin
 			when WRITE_MEM =>
 				m_write <= '1';
 				-- build byte address: tag + index + offset
-				m_addr <= to_integer(unsigned(std_logic_vector'(new_tag & s_addr(8 downto 4) & std_logic_vector(to_unsigned(mem_offset,4)))));
+				m_addr <= to_integer(unsigned(std_logic_vector'(query_tag & std_logic_vector(to_unsigned(index,5)) & std_logic_vector(to_unsigned(mem_offset,4)))));
 				m_writedata <= data(index)(mem_offset);
 				current_state <= WRITE_MEM_WAIT;
 			when WRITE_MEM_WAIT =>
