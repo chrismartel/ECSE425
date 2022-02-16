@@ -9,7 +9,7 @@ architecture behavior of cache_tb is
 
 component cache is
 generic(
-    ram_size : INTEGER := 32768;
+    ram_size : INTEGER := 32768
 );
 port(
     clock : in std_logic;
@@ -61,13 +61,20 @@ signal s_write : std_logic;
 signal s_writedata : std_logic_vector (31 downto 0);
 signal s_waitrequest : std_logic;
 
-signal m_addr : integer range 0 to 2147483647;
+signal m_addr : integer range 0 to 32768-1;
 signal m_read : std_logic;
 signal m_readdata : std_logic_vector (7 downto 0);
 signal m_write : std_logic;
 signal m_writedata : std_logic_vector (7 downto 0);
 signal m_waitrequest : std_logic; 
 
+-- constants
+
+constant ADDRESS_1 : std_logic_vector (31 downto 0) := std_logic_vector(to_unsigned(0,32));
+-- other addresses...
+
+constant VALUE_1 : integer range 0 to 2147483647 := 8;
+-- other values...
 begin
 
 -- Connect the components which we instantiated above to their
@@ -116,6 +123,31 @@ test_process : process
 begin
 
 -- put your tests here
+  wait for clk_period;
+  
+  reset <= '1';
+  wait for clk_period;
+  reset <= '0';
+  wait for clk_period;
+  
+  report "------------------------------------Test 1----------------------------------------";
+  s_addr <= ADDRESS_1;
+  s_read <= '0';
+  s_write <= '1';
+  s_writedata <= std_logic_vector(to_unsigned(VALUE_1, 32));
+  wait until falling_edge(s_waitrequest);
+
+  s_addr <= ADDRESS_1;
+  s_read <= '1';
+  s_write <= '0';
+  wait until falling_edge(s_waitrequest);
+  -- IMPORTANT to set s_read and s_write to low as soon as we observe the falling edge
+  s_read <= '0';
+  assert (to_integer(unsigned(s_readdata)) = VALUE_1) report "Unsuccessful read" severity error;
+
+  
+  report "Confirming all tests have ran";
+  wait;
 	
 end process;
 	
