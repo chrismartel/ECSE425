@@ -42,8 +42,8 @@ PORT (
     clock: IN STD_LOGIC;
     writedata: IN STD_LOGIC_VECTOR (7 DOWNTO 0);
     address: IN INTEGER RANGE 0 TO ram_size-1;
-    memwrite: IN STD_LOGIC;
-    memread: IN STD_LOGIC;
+    memwrite: IN STD_LOGIC := '0';
+    memread: IN STD_LOGIC := '0';
     readdata: OUT STD_LOGIC_VECTOR (7 DOWNTO 0);
     waitrequest: OUT STD_LOGIC
 );
@@ -61,19 +61,25 @@ signal s_write : std_logic;
 signal s_writedata : std_logic_vector (31 downto 0);
 signal s_waitrequest : std_logic;
 
-signal m_addr : integer range 0 to 32768-1;
+signal m_addr : integer range 0 to 2147483647;
 signal m_read : std_logic;
 signal m_readdata : std_logic_vector (7 downto 0);
 signal m_write : std_logic;
 signal m_writedata : std_logic_vector (7 downto 0);
 signal m_waitrequest : std_logic; 
 
--- constants
+-- Format of last 15 bits --> TTTTTTIIIIIWWBB
+-- Where T = Tag bits, I = Index bits, W = Word offset; B = Byte offset.
 
-constant ADDRESS_1 : std_logic_vector (31 downto 0) := std_logic_vector(to_unsigned(0,32));
--- other addresses...
+-- addresses
+constant ADDRESS_TAG0 : std_logic_vector (31 downto 0) := "00000000000000000000000000000000"; -- first word of block 0, tag 0
+constant ADDRESS_TAG1 : std_logic_vector (31 downto 0) := "00000000000000000000001000000000"; -- first word of block 0, tag 1
+-- data
+constant DEFAULT_DATA : std_logic_vector (31 downto 0) := "00000011000000100000000100000000"; -- default value of word 0 of block 0
+constant DATA1 : std_logic_vector (31 downto 0) := "00000000000000000000000000000001"; -- data to write on first word of first block with tag 0
+constant DATA2 : std_logic_vector (31 downto 0) := "00000000000000000000000000000010"; -- data to write on first word of second block with tag 0
+constant DATA3 : std_logic_vector (31 downto 0) := "00000000000000000000000000000100"; -- data to write on first word of first block with tag 1
 
-constant VALUE_1 : integer range 0 to 2147483647 := 8;
 -- other values...
 begin
 
@@ -123,32 +129,204 @@ test_process : process
 begin
 
 -- put your tests here
+
+  ----------------------------------------------------------------------------------
+  -- RESET
+  ----------------------------------------------------------------------------------
   wait for clk_period;
-  
   reset <= '1';
   wait for clk_period;
   reset <= '0';
   wait for clk_period;
+  ----------------------------------------------------------------------------------
   
-  report "------------------------------------Test 1----------------------------------------";
-  s_addr <= ADDRESS_1;
-  s_read <= '0';
-  s_write <= '1';
-  s_writedata <= std_logic_vector(to_unsigned(VALUE_1, 32));
-  wait until falling_edge(s_waitrequest);
+  report "----- Starting tests -----";
 
-  s_addr <= ADDRESS_1;
+  ----------------------------------------------------------------------------------
+  -- CASE 1: Not Valid, Write
+  ----------------------------------------------------------------------------------
+  -- Pre:
+  -- 	Block 0: valid=0, dirty=0, tag=U, first word=U
+  --
+  -- Post:
+  -- 	Block 0: valid=1, dirty=1, tag=0, first word=DATA1
+
+  report "----- Case 1: Not Valid, Write -----";
+  s_addr <= ADDRESS_TAG0;
+  s_writedata <= DATA1;
+  s_write <= '1';
+  wait until falling_edge(s_waitrequest);
+  s_write <= '0';
+
+  wait until rising_edge(s_waitrequest);
+  s_addr <= ADDRESS_TAG0;
   s_read <= '1';
   s_write <= '0';
   wait until falling_edge(s_waitrequest);
-  -- IMPORTANT to set s_read and s_write to low as soon as we observe the falling edge
   s_read <= '0';
-  assert (to_integer(unsigned(s_readdata)) = VALUE_1) report "Unsuccessful read" severity error;
+  assert s_readdata = DATA1 report "Case 1: Unsuccessful" severity error;
 
-  
-  report "Confirming all tests have ran";
+  ----------------------------------------------------------------------------------
+  -- RESET
+  ----------------------------------------------------------------------------------
+  wait for clk_period;
+  reset <= '1';
+  wait for clk_period;
+  reset <= '0';
+  wait for clk_period;
+
+  ----------------------------------------------------------------------------------
+  -- CASE 2: Not Valid, Read
+  ----------------------------------------------------------------------------------
+  -- Pre:
+  -- 	Block 0: valid=0, dirty=0, tag=U, first word=U
+  --
+  -- Post:
+  -- 	Block 0: valid=1, dirty=0, tag=0, first word=DATA_BLOCK0_DEFAULT
+
+
+  report "----- Case 1: Not Valid, Read -----";
+  s_addr <= ADDRESS_TAG0;
+  s_read <= '1';
+  s_write <= '0';
+  wait until falling_edge(s_waitrequest);
+  s_read <= '0';
+  assert s_readdata = DEFAULT_DATA report "Case 1: Unsuccessful" severity error;
+
+  ----------------------------------------------------------------------------------
+  -- CASE 3: Valid, Tag Equal, Read
+  ----------------------------------------------------------------------------------
+  -- Pre:
+  -- 	Block 0: valid=1, dirty=0, tag=0, first word=DATA_BLOCK0_DEFAULT
+  --
+  -- Post:
+  -- 	Block 0: valid=1, dirty=0, tag=0, first word=DATA_BLOCK0_DEFAULT
+
+  report "----- Case 3: Valid, Tag equal, Read";
+  wait until rising_edge(s_waitrequest);
+  s_addr <= ADDRESS_TAG0; -- read first word of block 0
+  s_read <= '1';
+  s_write <= '0';
+  wait until falling_edge(s_waitrequest);
+  s_read <= '0';
+  assert s_readdata = DEFAULT_DATA report "Case 3: Unsuccessful" severity error;
+
+  ----------------------------------------------------------------------------------
+  -- CASE 4: Valid, Tag Equal, Write
+  ----------------------------------------------------------------------------------
+  -- Pre:
+  -- 	Block 0: valid=1, dirty=0, tag=0, first word=DATA_BLOCK0_DEFAULT
+  --
+  -- Post:
+  -- 	Block 0: valid=1, dirty=1, tag=0, first word=DATA1
+
+  report "----- Case 4: Valid, Tag equal, Write";
+  wait until rising_edge(s_waitrequest);
+  s_addr <= ADDRESS_TAG0;
+  s_writedata <= DATA1;
+  s_write <= '1';
+  wait until falling_edge(s_waitrequest);
+  s_write <= '0';
+
+  -- verify that write was successful
+  wait until rising_edge(s_waitrequest);
+  s_addr <= ADDRESS_TAG0;
+  s_read <= '1';
+  s_write <= '0';
+  wait until falling_edge(s_waitrequest);
+  s_read <= '0';
+  assert s_readdata = DATA1 report "Case 4: Unsuccessful write" severity error;
+
+  ----------------------------------------------------------------------------------
+  -- CASE 5: Valid, Tag Not Equal, Dirty, Write
+  ----------------------------------------------------------------------------------
+  -- Pre:
+  -- 	Block 0: valid=1, dirty=1, tag=0, first word=DATA1
+  --
+  -- Post:
+  -- 	Block 0: valid=1, dirty=1, tag=1, first word=DATA2
+
+  report "----- Case 5: Valid, Tag not equal, dirty, Write";
+  wait until rising_edge(s_waitrequest);
+  s_addr <= ADDRESS_TAG1;
+  s_writedata <= DATA2;
+  s_write <= '1';
+  wait until falling_edge(s_waitrequest);
+  s_write <= '0';
+
+  wait until rising_edge(s_waitrequest);
+  s_addr <= ADDRESS_TAG1;
+  s_read <= '1';
+  s_write <= '0';
+  wait until falling_edge(s_waitrequest);
+  s_read <= '0';
+  assert s_readdata = DATA2 report "Case 5: Unsuccessful" severity error;
+
+  ----------------------------------------------------------------------------------
+  -- CASE 6: Valid, Tag Not Equal, Dirty, Read
+  ----------------------------------------------------------------------------------
+  -- Pre:
+  -- 	Block 0: valid=1, dirty=1, tag=1, first word=DATA2
+  --
+  -- Post:
+  -- 	Block 0: valid=1, dirty=0, tag=0, first word=DATA1
+
+  report "----- Case 6: Valid, Tag not equal, dirty, Read";
+  wait until rising_edge(s_waitrequest);
+  s_addr <= ADDRESS_TAG0;
+  s_read <= '1';
+  s_write <= '0';
+  wait until falling_edge(s_waitrequest);
+  s_read <= '0';
+  assert s_readdata = DATA1 report "Case 6: Unsuccessful" severity error;
+
+  ----------------------------------------------------------------------------------
+  -- CASE 7: Valid, Tag Not Equal, Not Dirty, Read
+  ----------------------------------------------------------------------------------
+  -- Pre:
+  -- 	Block 0: valid=1, dirty=0, tag=0, first word=DATA2
+  --
+  -- Post:
+  -- 	Block 0: valid=1, dirty=0, tag=1, first word=DATA2
+
+  report "----- Case 7: Valid, Tag not equal, not dirty, Read";
+  -- Read block with index i and tag 0
+  wait until rising_edge(s_waitrequest);
+  s_addr <= ADDRESS_TAG1;
+  s_read <= '1';
+  wait until falling_edge(s_waitrequest);
+  s_read <= '0';
+  assert s_readdata = DATA2 report "Case 7: Unsuccessful" severity error;
+
+  ----------------------------------------------------------------------------------
+  -- CASE 8: Valid, Tag Not Equal, Not Dirty, Write
+  ----------------------------------------------------------------------------------
+  -- Pre:
+  -- 	Block 0: valid=1, dirty=0, tag=1, first word=DATA2
+  --
+  -- Post:
+  -- 	Block 0: valid=1, dirty=1, tag=0, first word=DATA3
+
+  report "----- Case 8: Valid, Tag not equal, not dirty, Write";
+  wait until rising_edge(s_waitrequest);
+  s_addr <= ADDRESS_TAG0;
+  s_writedata <= DATA3;
+  s_write <= '1';
+  wait until falling_edge(s_waitrequest);
+  s_write <= '0';
+
+  wait until rising_edge(s_waitrequest);
+  s_addr <= ADDRESS_TAG0;
+  s_read <= '1';
+  s_write <= '0';
+  wait until falling_edge(s_waitrequest);
+  s_read <= '0';
+  assert s_readdata = DATA3 report "Case 8: Unsuccessful" severity error;
+  ----------------------------------------------------------------------------------
+
+  report "----- Confirming all tests have ran -----";
   wait;
-	
+
 end process;
 	
 end;

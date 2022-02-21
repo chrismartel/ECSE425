@@ -59,14 +59,23 @@ architecture arch of cache is
 	signal dirty : flag_array; 	-- dirty bits for each cache block
 
 	signal query_tag: std_logic_vector(5 downto 0); 	-- tag of the query block		
-	signal index: integer range 0 to 31;		-- block index
-	signal query_byte_offset: integer range 0 to 3;		-- block offset
+	signal index: integer range 0 to 31;			-- block index
+	signal query_byte_offset: integer range 0 to 15;	-- block offset
 	
-	signal current_state: cache_state;		-- current cache state
-	signal mem_byte_offset: integer range 0 to 15;	-- byte offset in a memory block
+	signal current_state: cache_state;			-- current cache state
+	signal mem_byte_offset: integer range 0 to 15;		-- byte offset in a memory block
 begin
 
 -- make circuits here
+	read_write_process: process(s_read, s_write)
+	begin
+		if (s_read'event and s_read = '1') or (s_write'event and s_write = '1') then
+			query_byte_offset <= to_integer(unsigned(s_addr(3 downto 0)));
+			index <= to_integer(unsigned(s_addr(8 downto 4)));
+			query_tag <= s_addr(14 downto 9);	
+		end if;
+	end process;
+
 	cache_process: process(clock, reset)
 	begin
 	-- Asynchronous reset active-high
@@ -79,6 +88,9 @@ begin
 		-- Assert wait request to high
 		s_waitrequest <= '1';
 		current_state <= IDLE;
+                s_readdata <= (OTHERS => 'U');
+		m_writedata <= (OTHERS => 'U');
+		m_addr <= 0;
 		
 		m_read <= '0';
 		m_write <= '0';
@@ -97,9 +109,6 @@ begin
 				end if;
 			-- Read data from cache
 			when READ_CACHE =>
-				query_byte_offset <= to_integer(unsigned(s_addr(3 downto 0)));
-				index <= to_integer(unsigned(s_addr(8 downto 4)));
-				query_tag <= s_addr(14 downto 9);
 				-- check valid bit
 				if valid(index) = '1' then
 					-- check tag
@@ -107,7 +116,6 @@ begin
 						-- tag match --> cache hit!
 				
 						-- read word
-						-- TODO: read whole word at once
 						s_readdata(31 downto 24) <= data(index)(query_byte_offset+3);
 						s_readdata(23 downto 16) <= data(index)(query_byte_offset+2);
 						s_readdata(15 downto 8) <= data(index)(query_byte_offset+1);
@@ -137,9 +145,6 @@ begin
 				end if;
 			-- Write data to cache
 			when WRITE_CACHE =>
-				query_byte_offset <= to_integer(unsigned(s_addr(3 downto 0)));
-				index <= to_integer(unsigned(s_addr(8 downto 4)));
-				query_tag <= s_addr(14 downto 9);
 				-- check valid flag
 				if valid(index) = '1' then
 					-- check tag
